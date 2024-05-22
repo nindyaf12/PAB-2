@@ -1,15 +1,13 @@
-import 'dart:typed_data';
+import 'dart:io' as io;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:image_picker_web/image_picker_web.dart';
 import 'package:notes/models/note.dart';
 import 'package:notes/services/note_service.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 
 class NoteDialog extends StatefulWidget {
   final Note? note;
 
-  const NoteDialog({Key? key, this.note}) : super(key: key);
+  const NoteDialog({super.key, this.note});
 
   @override
   State<NoteDialog> createState() => _NoteDialogState();
@@ -18,8 +16,7 @@ class NoteDialog extends StatefulWidget {
 class _NoteDialogState extends State<NoteDialog> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
-  Uint8List? _imageBytes;
-  String? _imageName;
+  XFile? _imageFile;
 
   @override
   void initState() {
@@ -31,23 +28,11 @@ class _NoteDialogState extends State<NoteDialog> {
   }
 
   Future<void> _pickImage() async {
-    if (kIsWeb) {
-      final imageFile = await ImagePickerWeb.getImageAsBytes();
-      if (imageFile != null) {
-        setState(() {
-          _imageBytes = imageFile;
-          _imageName = 'picked_image.png'; // Better name is recommended
-        });
-      }
-    } else {
-      final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-      if (pickedFile != null) {
-        final bytes = await pickedFile.readAsBytes();
-        setState(() {
-          _imageBytes = bytes;
-          _imageName = pickedFile.name;
-        });
-      }
+    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        _imageFile = pickedFile;
+      });
     }
   }
 
@@ -55,23 +40,28 @@ class _NoteDialogState extends State<NoteDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(widget.note == null ? 'Add Notes' : 'Update Notes'),
-      content: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Title: '),
-            TextField(controller: _titleController),
-            const Padding(padding: EdgeInsets.only(top: 20), child: Text('Description: ')),
-            TextField(controller: _descriptionController, maxLines: null),
-            const Padding(padding: EdgeInsets.only(top: 20), child: Text('Image: ')),
-            _imageBytes != null
-                ? Image.memory(_imageBytes!, fit: BoxFit.cover, height: 150)
-                : (widget.note?.imageUrl != null && Uri.parse(widget.note!.imageUrl!).isAbsolute
-                    ? Image.network(widget.note!.imageUrl!, fit: BoxFit.cover, height: 150)
-                    : Container()),
-            TextButton(onPressed: _pickImage, child: const Text('Pick Image')),
-          ],
-        ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Title', textAlign: TextAlign.start),
+          TextField(controller: _titleController),
+          const Padding(
+            padding: EdgeInsets.only(top: 20),
+            child: Text('Description: '),
+          ),
+          TextField(controller: _descriptionController, maxLines: null),
+          const Padding(
+            padding: EdgeInsets.only(top: 20),
+            child: Text('Image: '),
+          ),
+          _imageFile != null
+              ? Image.network(_imageFile!.path, fit: BoxFit.cover)
+              : (widget.note?.imageUrl != null && Uri.parse(widget.note!.imageUrl!).isAbsolute
+                  ? Image.network(widget.note!.imageUrl!, fit: BoxFit.cover)
+                  : Container()),
+          TextButton(onPressed: _pickImage, child: const Text('Pick Image')),
+        ],
       ),
       actions: [
         Padding(
@@ -86,13 +76,11 @@ class _NoteDialogState extends State<NoteDialog> {
         ElevatedButton(
           onPressed: () async {
             String? imageUrl;
-            if (_imageBytes != null) {
-              imageUrl = await NoteService.uploadImage(_imageBytes!, _imageName!);
-              print('Uploaded Image URL: $imageUrl'); // Debugging log
+            if (_imageFile != null) {
+              imageUrl = await NoteService.uploadImage(_imageFile!);
             } else {
               imageUrl = widget.note?.imageUrl;
             }
-
             Note note = Note(
               id: widget.note?.id,
               title: _titleController.text,
@@ -106,8 +94,7 @@ class _NoteDialogState extends State<NoteDialog> {
             } else {
               await NoteService.updateNote(note);
             }
-
-            Navigator.of(context).pop(note);
+            Navigator.of(context).pop();
           },
           child: Text(widget.note == null ? 'Add' : 'Update'),
         ),
